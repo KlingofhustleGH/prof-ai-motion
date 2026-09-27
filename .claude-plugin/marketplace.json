@@ -1,0 +1,15 @@
+{
+  "name": "prof-ai-motion",
+  "description": "PROF AI Motion — моушн-видео кодом в Claude Code.",
+  "owner": {
+    "name": "PROF AI",
+    "url": "https://prof-ai.pro"
+  },
+  "plugins": [
+    {
+      "name": "prof-ai-motion",
+      "source": "./",
+      "description": "Моушн-видео из видео, фото, сайта и музыки: HTML → кадры → MP4, 3D, монтаж под биты, SFX."
+    }
+  ]
+}
