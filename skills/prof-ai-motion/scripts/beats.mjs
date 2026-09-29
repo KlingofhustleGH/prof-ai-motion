@@ -1,13 +1,21 @@
 #!/usr/bin/env node
 // Beat grid of a music track.
-//   ffmpeg -i track.mp3 -ac 1 -ar 22050 -f f32le work/track.raw
-//   node beats.mjs work/track.raw            → work/kickgrid.json  { a, P, beat, bpm, entry }
+//   node beats.mjs work/track.mp3            (any audio/video file — decoded with ffmpeg)
+//   node beats.mjs work/track.raw            (or raw mono f32le @ 22050 Hz)
+//   → work/kickgrid.json  { a, P, beat, bpm, entry }
 // Prints: tempo candidates, on-beat vs off-beat check, robust kick fit, energy profile around the beat entry.
+// Always cross-check the result by eye: list the strongest low-band onsets and see that they sit on the grid.
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 const file = path.resolve(process.argv[2] || 'work/track.raw');
 const SR = 22050, HOP = 256, WIN = 1024;
-const raw = fs.readFileSync(file); const x = new Float32Array(raw.buffer, raw.byteOffset, raw.length / 4);
+// A .wav/.mp3/.mp4 read as raw floats gives garbage (seen: «на долях 1.7e36»). Decode anything that is not .raw.
+const raw = file.endsWith('.raw') ? fs.readFileSync(file)
+  : execFileSync('ffmpeg', ['-loglevel', 'error', '-i', file, '-ac', '1', '-ar', String(SR), '-f', 'f32le', '-'], { maxBuffer: 1 << 30 });
+const x = new Float32Array(raw.buffer, raw.byteOffset, Math.floor(raw.length / 4));
+const peak = x.reduce((m, v) => Math.max(m, Math.abs(v)), 0);
+if (!(peak > 1e-4 && peak < 50)) { console.error(`входной сигнал не похож на звук (пик ${peak}). Дай аудиофайл или raw f32le mono ${SR} Гц.`); process.exit(1); }
 function fft(re, im) { const n = re.length; for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
   for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a); for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let k = 0; k < len / 2; k++) { const h = i + k + len / 2, vr = re[h] * cr - im[h] * ci, vi = re[h] * ci + im[h] * cr; re[h] = re[i + k] - vr; im[h] = im[i + k] - vi; re[i + k] += vr; im[i + k] += vi; const nr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = nr; } } } }
 
@@ -29,18 +37,25 @@ console.log('кандидаты темпа:', peaks.map(p => p[0].toFixed(1)).jo
 
 // 3. kick onsets (low-passed energy rises) and robust linear fit
 const H2 = 110; let lp = 0; const e = []; for (let i = 0; i + H2 < x.length; i += H2) { let s = 0; for (let k = 0; k < H2; k++) { lp += .02 * (x[i + k] - lp); s += lp * lp; } e.push(Math.sqrt(s / H2)); }
-const dt = H2 / SR, kicks = []; let last = -1; const thr = Math.max(...e) * .12;
-for (let i = 3; i < e.length; i++) { if (e[i] - e[i - 3] > thr && i * dt - last > .25) { kicks.push(i * dt); last = i * dt; } }
-const slowest = peaks.map(p => p[0]).filter(b => b >= 60).sort((a, b) => a - b)[0];
-let P = 60 / slowest, a = kicks[0] || 0;
-for (let it = 0; it < 6; it++) {
-  const pts = kicks.map(t => { const k = Math.round((t - a) / P); return [k, t, t - (a + P * k)]; }).filter(p => Math.abs(p[2]) < (it < 2 ? .1 : .05));
-  if (pts.length < 4) break;
-  const n = pts.length, sk = pts.reduce((s, p) => s + p[0], 0), st = pts.reduce((s, p) => s + p[1], 0), skk = pts.reduce((s, p) => s + p[0] * p[0], 0), skt = pts.reduce((s, p) => s + p[0] * p[1], 0);
-  P = (n * skt - sk * st) / (n * skk - sk * sk); a = (st - P * sk) / n;
-  if (it === 5) console.log(`бочка: ${(60 / P).toFixed(2)} BPM, фаза ${a.toFixed(3)} с, точек ${n}, разброс ${Math.max(...pts.map(p => Math.abs(p[1] - (a + P * p[0])))).toFixed(3)} с`);
-}
-a = ((a % P) + P) % P;
+const dt = H2 / SR;
+// Grid by folding: take the winning tempo, refine the period ±1.5 %, then fold low-band flux over 1/2/3/4 beats and
+// pick the phase with the strongest on/off contrast. (The old «slowest candidate + first kick» fit locked onto the
+// music start and missed the real kicks on dense, compressed mixes.)
+const lpA = Math.exp(-2 * Math.PI * 150 / SR); let lpv = 0; const le = [];
+for (let i = 0; i + H2 < x.length; i += H2) { let s = 0; for (let k = 0; k < H2; k++) { lpv = lpA * lpv + (1 - lpA) * x[i + k]; s += lpv * lpv; } le.push(Math.log(1e-9 + s)); }
+const flux = le.map((v, i) => i ? Math.max(0, v - le[i - 1]) : 0), dur = x.length / SR;
+const at = t => { const i = Math.round(t / dt); return Math.max(flux[i] || 0, (flux[i + 1] || 0) * .7, (flux[i - 1] || 0) * .7); };
+const fold = (per, ph) => { let s = 0; for (let t = ph; t < dur; t += per) s += at(t); return s; };
+const best = per => { let bp = 0, bs = -1; for (let ph = 0; ph < per; ph += .004) { const s = fold(per, ph); if (s > bs) { bs = s; bp = ph; } } return [bp, bs, fold(per, (bp + per / 2) % per)]; };
+let beatP = 60 / peaks[0][0], bestS = -1;
+for (let q = 60 / peaks[0][0] * .985; q <= 60 / peaks[0][0] * 1.015; q += 60 / peaks[0][0] * .0005) { const [, s] = best(q); if (s > bestS) { bestS = s; beatP = q; } }
+const rows = [1, 2, 3, 4].map(m => { const [ph, on, off] = best(beatP * m); return { m, ph, ratio: on / (off || 1e-9) }; });
+rows.forEach(r => console.log(`удар каждые ${r.m} дол.: фаза ${r.ph.toFixed(3)} с, контраст ${r.ratio.toFixed(2)}`));
+const acc = rows.slice(1).sort((p, q) => q.ratio - p.ratio)[0];
+let P = beatP * 2, a = rows[1].ph;
+console.log(`темп ${(60 / beatP).toFixed(2)} BPM · доля ${beatP.toFixed(4)} с · сильный удар каждые ${acc.m} дол. (фаза ${acc.ph.toFixed(3)} с)`);
+const strong = flux.map((v, i) => [v, i * dt]).sort((p, q) => q[0] - p[0]).slice(0, 14).map(p => p[1]).sort((p, q) => p - q);
+console.log('самые сильные удары низа (сверь с сеткой глазами):', strong.map(v => v.toFixed(2)).join(' '));
 
 // 4. self-check: onset strength on the grid vs half-way between
 let lp2 = 0; const env = new Float32Array(x.length); for (let i = 0; i < x.length; i++) { lp2 += .02 * (x[i] - lp2); env[i] = Math.abs(lp2); }
@@ -57,5 +72,5 @@ const entry = (bars.find((b, i) => b[1] > med * .8 && (bars[i + 1] || b)[1] > me
 console.log('вход бита ≈', entry.toFixed(3), 'с');
 
 const out = path.join(path.dirname(file), 'kickgrid.json');
-fs.writeFileSync(out, JSON.stringify({ a, P, beat: P / 2, bpm: 60 / P, entry }));
+fs.writeFileSync(out, JSON.stringify({ a, P, beat: P / 2, bpm: 60 / P, entry, beatBpm: 60 / beatP, accentEvery: acc.m, accentPhase: acc.ph }));
 console.log('→', out);

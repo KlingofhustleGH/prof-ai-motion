@@ -1,6 +1,6 @@
 {
   "name": "prof-ai-motion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "PROF AI Motion — моушн-видео из твоих видео, фото, сайта и музыки: HTML → кадры → MP4, 3D на Three.js, монтаж под биты трека, SFX и проверка по кадрам.",
   "author": { "name": "PROF AI", "url": "https://prof-ai.pro" },
   "homepage": "https://github.com/KlingofhustleGH/prof-ai-motion",

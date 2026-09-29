@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- PROF AI Motion — canvas starter (16:9). Engine: engine.js. Three demo scenes, no external assets.
+     Each scene shows the laws: paw on every move, a new step on every beat, ≥3 depth layers, a 3D element at least every 3rd scene.
+     Replace the scenes; keep the SCENES list and boot(). Render: node <skill>/scripts/render.mjs stills 1,3,4.5 --dir work --comp reel.html --w 1920 --h 1080 -->
+<html lang="ru"><head><meta charset="utf-8">
+<link rel="stylesheet" href="assets/fonts/fonts.css">
+<style>*{margin:0;padding:0}html,body{width:1920px;height:1080px;overflow:hidden;background:#161517}canvas{position:absolute;inset:0}</style>
+</head><body>
+<canvas id="c" width="1920" height="1080"></canvas>
+<script src="engine.js"></script>
+<script>
+// palette: two colours + one accent (from the reference DNA)
+const PK = '#E8235B', K = '#161517', C = '#E6DFCB', PKr = [232, 35, 91], Kr = [22, 21, 23], Cr = [230, 223, 203];
+
+// 1 · 0–2.232 · word assembles, 3D prism with a text ring, everything steps on the beats
+function S1(g, t) { g.fillStyle = PK; g.fillRect(0, 0, W, H);
+  g.save(); camera(g, 960, 540, 1 + P(t, 1.2, 1.8) * .1 + pong(t, .732, 2, .03), walk(t, .732, 2, 1, 40));
+  txt(g, 'монтаж', 960 + walk(t, .732, 2, 2, 120), 520, 460, { w: 900, col: K, stroke: 5, ls: lerp(-.06, .14, P(t, .732, .4)), a: .9 });   // back layer
+  const ang = -t * .5 - [.232, .732, 1.232, 1.732].reduce((a, b) => a + 1.1 * P(t, b, .34), 0), R = lerp(0, 420, P(t, .232, .45));
+  ring(g, 'делегируй монтаж нейронке • ', 960, 600, R, .2, ang, 80, C, 'back');
+  prism(g, 960 + walk(t, .482, 2, 3, 60), 540, lerp(20, 200, P(t, .232, .5)), .3 + walk(t, .482, 2, 4, .4), t * 1.3, walk(t, .482, 2, 5, .3));   // 3D
+  ring(g, 'делегируй монтаж нейронке • ', 960, 600, R, .2, ang, 80, C, 'front');
+  g.restore();
+  word(g, t, .732, 'claude opus 5.5', 1500, 960, 52, { w: 800, col: C, until: 2 });                                                        // front layer
+}
+
+// 2 · 2.232–3.732 · tunnel, a word bursts out of a point, 3D paper ball bounces on the beats
+function S2(g, t) { const gr = g.createRadialGradient(960, 540, 0, 960, 540, 1100); gr.addColorStop(0, PK); gr.addColorStop(.55, '#6a1230'); gr.addColorStop(1, K); g.fillStyle = gr; g.fillRect(0, 0, W, H);
+  tunnel(g, t - 2.232);
+  burst(g, t, 2.482, 'кодом', 960 + walk(t, 2.982, 3.6, 7, 140), 420, 280, { col: C });
+  const hop = pong(t, 2.732, 3.6, -120);
+  ball(g, 960 + walk(t, 2.732, 3.6, 8, 200), 800 + hop, 110, t * 3, t * 4);                                                                // 3D
+  confetti(g, t, 2.982, 960, 700, 60, 3, 1, [C, K]); }
+
+// 3 · 3.732–5.232 · extruded letters, a portal, strips shutter out
+function S3(g, t) { g.fillStyle = vgrad(g, 0, 800, [[0, PK], [.7, '#f0587f'], [1, '#ffd0c0']]); g.fillRect(0, 0, W, 800); g.fillStyle = K; g.fillRect(0, 800, W, H);
+  extruded(g, 'а', 520, 800, 620, P(t, 3.982, .4)); extruded(g, 'я', 1400, 800, 620, P(t, 4.482, .4));                                   // pseudo-3D
+  portal(g, 960, 420, lerp(0, 200, P(t, 4.232, .4)) * (1 + pong(t, 4.732, 5.1, .15)), gg => { gg.fillStyle = C; gg.fillRect(0, 0, W, H); tunnel(gg, t, 80, [PKr, Kr], 960, 420); }, K, 8);
+  word(g, t, 3.732, 'от а до я', 960, 150, 150, { w: 900, col: C, until: 5 });
+  shutter(g, paw(prog(t, 5.05, .17)), K); }
+
+boot({ canvas: document.getElementById('c'), scenes: [[0, S1], [2.232, S2], [3.732, S3]], beat0: 0.232, beat: 0.5,
+  fonts: ['500 60px "Inter Tight"', '800 60px "Inter Tight"', '900 60px "Inter Tight"'] });
+</script></body></html>
